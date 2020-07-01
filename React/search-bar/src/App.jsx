@@ -49,7 +49,7 @@ const SearchbarDropdown = (props) => {
 const defaultOptions = [];
 for (let i = 0; i < 10; i++) {
   defaultOptions.push(`option ${i}`);
-  defaultOptions.push(`suggestion ${i}`);
+  defaultOptions.push(`suggesstion ${i}`);
   defaultOptions.push(`advice ${i}`);
 }
 
