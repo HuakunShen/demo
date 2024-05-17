@@ -1,0 +1,17 @@
+[package]
+name = "axum-tonic"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+tonic-build = "0.11"
+
+[dependencies]
+tonic = "0.11"
+prost = "0.12"
+axum = { version = "0.6.20" }
+axum-extra = { version = "0.8.0" }
+tokio = { version = "1.0", features = ["full"] }
+tower = { version = "0.4", features = ["util"] }
+tower-http = { version = "0.4.0", features = ["fs", "trace"] }
+tonic-reflection = "0.11.0"
