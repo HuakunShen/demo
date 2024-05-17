@@ -6,12 +6,9 @@ use tonic::{
 };
 
 pub mod helloworld {
-
-    tonic::include_proto!("helloworld"); // The string specified here must match the proto package name
-                                         // let descriptor_path = PathBuf::from("/Users/hacker/Dev/projects/Jarvis/apps/desktop/src-tauri/proto");
-                                         // let descriptor_path = PathBuf::from(PathBuf::from(format!("/Users/hacker/Dev/projects/Jarvis/apps/desktop/src-tauri/proto")).join("my_descriptor.bin"));
-                                         // pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
-                                         //     tonic::include_file_descriptor_set!("helloworld_descriptor");
+    tonic::include_proto!("helloworld");
+    pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
+        tonic::include_file_descriptor_set!("helloworld_descriptor");
 }
 
 #[derive(Debug, Default)]
@@ -42,8 +39,16 @@ async fn handler() -> Html<&'static str> {
 async fn main() {
     let addr = "[::1]:50052".parse().unwrap();
     let greeter = MyGreeter::default();
+    // let bytes: &[u8] = &std::fs::read("proto/helloworld_descriptor.bin").unwrap();
+
+    let reflection_service = tonic_reflection::server::Builder::configure()
+        // .register_encoded_file_descriptor_set(bytes)
+        .register_encoded_file_descriptor_set(helloworld::FILE_DESCRIPTOR_SET)
+        .build()
+        .unwrap();
 
     let router = tonic_server::builder()
+        .add_service(reflection_service)
         .add_service(helloworld::greeter_server::GreeterServer::new(greeter))
         .into_router()
         .route("/", get(handler));
