@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body>
+    <iframe width="500" height="500" class="border-2 border-red-500" frameborder="0"></iframe>
+    <script>
+        const iframe = document.querySelector("iframe")
+        console.log(iframe);
+        const currentWindow = iframe.contentWindow
+        currentWindow.document.body.innerHTML = '<div id="root"></div>'
+        fetch("http://localhost:3000/index.js").then(res => res.text()).then(js => {
+            currentWindow.eval(js)
+        })
+    </script>
+</body>
+
+</html>
