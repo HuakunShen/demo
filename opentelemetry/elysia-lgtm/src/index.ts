@@ -7,22 +7,34 @@ import { NodeSDK } from "@opentelemetry/sdk-node";
 import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-node";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
 import { OTLPTraceExporter as OTLPTraceExporterHTTP } from "@opentelemetry/exporter-trace-otlp-http";
-import { SimpleLogRecordProcessor } from "@opentelemetry/sdk-logs";
-import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-proto";
-import { OTLPLogExporter as OTLPLogExporterHTTP } from "@opentelemetry/exporter-logs-otlp-http";
+import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
+import { LoggerProvider, SimpleLogRecordProcessor } from "@opentelemetry/sdk-logs";
+import { WinstonInstrumentation } from "@opentelemetry/instrumentation-winston";
 import { trace, SpanStatusCode } from "@opentelemetry/api";
 import { logs } from "@opentelemetry/api-logs";
+import * as winston from 'winston';
+import { OpenTelemetryTransportV3 } from '@opentelemetry/winston-transport';
 
 const OTLP_HOST = process.env.OTLP_HOST || "localhost";
 const serviceName = "Elysia Otel";
 
+// Set up LoggerProvider to export logs to LGTM
+const loggerProvider = new LoggerProvider({
+  processors: [
+    new SimpleLogRecordProcessor(
+      new OTLPLogExporter({
+        url: `http://${OTLP_HOST}:4318/v1/logs`,
+      })
+    )
+  ]
+});
+
+// Register the logger provider
+logs.setGlobalLoggerProvider(loggerProvider);
+
 // Create multiple exporters for different endpoints
 const lgtmTraceExporter = new OTLPTraceExporter({
   url: `http://${OTLP_HOST}:4318/v1/traces`,
-});
-
-const lgtmLogExporter = new OTLPLogExporter({
-  url: `http://${OTLP_HOST}:4318/v1/logs`,
 });
 
 const jaegerTraceExporter = new OTLPTraceExporterHTTP({
@@ -35,18 +47,44 @@ const spanProcessors = [
   new BatchSpanProcessor(jaegerTraceExporter),
 ];
 
-// Initialize OpenTelemetry SDK
+// Initialize OpenTelemetry SDK with Winston instrumentation
 const sdk = new NodeSDK({
   serviceName,
   spanProcessors,
-  logRecordProcessor: new SimpleLogRecordProcessor(lgtmLogExporter),
+  instrumentations: [
+    new WinstonInstrumentation({
+      // Disable automatic log sending since we'll use the transport directly
+      disableLogSending: true,
+      // Enable log correlation to add trace context
+      logHook: (span: any, record: any) => {
+        record['service.name'] = serviceName;
+      },
+    }),
+  ],
 });
 
 // Start the SDK
 sdk.start();
 
-// Get loggers
-const logger = logs.getLogger("elysia-app");
+// Create Winston logger with OpenTelemetry transport
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.errors({ stack: true }),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.simple()
+      )
+    }),
+    // Add OpenTelemetry transport to send logs via OTLP
+    new OpenTelemetryTransportV3()
+  ],
+});
 
 const appTracer = trace.getTracer(serviceName, "1.0.0");
 
@@ -60,10 +98,9 @@ function simulateDatabaseQuery() {
   });
 
   try {
-    logger.emit({
-      severityText: "INFO",
-      severityNumber: 9,
-      body: "Starting database query for users"
+    logger.info('Starting database query for users', {
+      operation: 'database-query',
+      table: 'users'
     });
 
     // Simulate some work
@@ -72,15 +109,17 @@ function simulateDatabaseQuery() {
       // Busy wait to simulate processing
     }
 
+    const queryTime = Date.now() - startTime;
+    
     span.addEvent("query_executed", {
       "db.rows_returned": 5,
-      "db.query_time_ms": Date.now() - startTime
+      "db.query_time_ms": queryTime
     });
 
-    logger.emit({
-      severityText: "INFO",
-      severityNumber: 9,
-      body: `Database query completed in ${Date.now() - startTime}ms, returned 5 users`
+    logger.info('Database query completed successfully', {
+      queryTimeMs: queryTime,
+      rowsReturned: 5,
+      operation: 'database-query'
     });
 
     span.setStatus({ code: SpanStatusCode.OK });
@@ -88,11 +127,13 @@ function simulateDatabaseQuery() {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     span.setStatus({ code: SpanStatusCode.ERROR, message: errorMessage });
-    logger.emit({
-      severityText: "ERROR",
-      severityNumber: 17,
-      body: `Database query failed: ${errorMessage}`
+    
+    logger.error('Database query failed', {
+      error: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+      operation: 'database-query'
     });
+    
     throw error;
   } finally {
     span.end();
@@ -109,10 +150,10 @@ function simulateExternalApiCall() {
   });
 
   try {
-    logger.emit({
-      severityText: "INFO",
-      severityNumber: 9,
-      body: "Making external API call to https://api.external.com/data"
+    logger.info('Making external API call', {
+      url: 'https://api.external.com/data',
+      method: 'GET',
+      operation: 'external-api-call'
     });
 
     // Simulate network delay
@@ -121,15 +162,17 @@ function simulateExternalApiCall() {
       // Busy wait to simulate network delay
     }
 
+    const responseTime = Date.now() - startTime;
+    
     span.addEvent("api_response_received", {
       "http.status_code": 200,
-      "response_time_ms": Date.now() - startTime
+      "response_time_ms": responseTime
     });
 
-    logger.emit({
-      severityText: "INFO",
-      severityNumber: 9,
-      body: `External API call completed in ${Date.now() - startTime}ms with status 200`
+    logger.info('External API call completed successfully', {
+      responseTimeMs: responseTime,
+      statusCode: 200,
+      operation: 'external-api-call'
     });
 
     span.setStatus({ code: SpanStatusCode.OK });
@@ -137,11 +180,13 @@ function simulateExternalApiCall() {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     span.setStatus({ code: SpanStatusCode.ERROR, message: errorMessage });
-    logger.emit({
-      severityText: "ERROR",
-      severityNumber: 17,
-      body: `External API call failed: ${errorMessage}`
+    
+    logger.error('External API call failed', {
+      error: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+      operation: 'external-api-call'
     });
+    
     throw error;
   } finally {
     span.end();
@@ -157,10 +202,9 @@ function processBusinessLogic(dbData: { users: string[] }, apiData: { data: stri
   });
 
   try {
-    logger.emit({
-      severityText: "INFO",
-      severityNumber: 9,
-      body: "Starting business logic processing"
+    logger.info('Starting business logic processing', {
+      operation: 'business-logic-processing',
+      domain: 'user_management'
     });
 
     span.addEvent("processing_started");
@@ -171,6 +215,8 @@ function processBusinessLogic(dbData: { users: string[] }, apiData: { data: stri
       // Busy wait to simulate processing
     }
 
+    const processingTime = Date.now() - startTime;
+    
     const result = {
       userCount: dbData.users.length,
       externalDataTimestamp: apiData.timestamp,
@@ -179,13 +225,13 @@ function processBusinessLogic(dbData: { users: string[] }, apiData: { data: stri
 
     span.addEvent("processing_completed", {
       "processed_items": result.userCount,
-      "processing_time_ms": Date.now() - startTime
+      "processing_time_ms": processingTime
     });
 
-    logger.emit({
-      severityText: "INFO",
-      severityNumber: 9,
-      body: `Business logic processing completed in ${Date.now() - startTime}ms, processed ${result.userCount} items`
+    logger.info('Business logic processing completed successfully', {
+      processingTimeMs: processingTime,
+      processedItems: result.userCount,
+      operation: 'business-logic-processing'
     });
 
     span.setStatus({ code: SpanStatusCode.OK });
@@ -193,11 +239,13 @@ function processBusinessLogic(dbData: { users: string[] }, apiData: { data: stri
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     span.setStatus({ code: SpanStatusCode.ERROR, message: errorMessage });
-    logger.emit({
-      severityText: "ERROR",
-      severityNumber: 17,
-      body: `Business logic processing failed: ${errorMessage}`
+    
+    logger.error('Business logic processing failed', {
+      error: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+      operation: 'business-logic-processing'
     });
+    
     throw error;
   } finally {
     span.end();
@@ -219,9 +267,6 @@ const app = new Elysia()
   .use(
     opentelemetry({
       spanProcessors: spanProcessors,
-      // logRecordProcessors: [
-      //   new SimpleLogRecordProcessor(lgtmLogExporter),
-      // ],
     })
   )
   .get(
@@ -234,10 +279,10 @@ const app = new Elysia()
       });
 
       try {
-        logger.emit({
-          severityText: "INFO",
-          severityNumber: 9,
-          body: "Root request handler started"
+        logger.info('Root request handler started', {
+          route: '/',
+          method: 'GET',
+          operation: 'root-request-handler'
         });
 
         span.addEvent("request_started");
@@ -248,14 +293,15 @@ const app = new Elysia()
         const apiData = simulateExternalApiCall();
         const processedData = processBusinessLogic(dbData, apiData);
 
+        const responseSize = JSON.stringify(processedData).length;
+        
         span.addEvent("request_completed", {
-          "response_size": JSON.stringify(processedData).length
+          "response_size": responseSize
         });
 
-        logger.emit({
-          severityText: "INFO",
-          severityNumber: 9,
-          body: `Root request completed successfully, response size: ${JSON.stringify(processedData).length} bytes`
+        logger.info('Root request completed successfully', {
+          responseSizeBytes: responseSize,
+          operation: 'root-request-handler'
         });
 
         span.setStatus({ code: SpanStatusCode.OK });
@@ -266,11 +312,13 @@ const app = new Elysia()
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         span.setStatus({ code: SpanStatusCode.ERROR, message: errorMessage });
-        logger.emit({
-          severityText: "ERROR",
-          severityNumber: 17,
-          body: `Root request failed: ${errorMessage}`
+        
+        logger.error('Root request failed', {
+          error: errorMessage,
+          stack: error instanceof Error ? error.stack : undefined,
+          operation: 'root-request-handler'
         });
+        
         throw error;
       } finally {
         span.end();
