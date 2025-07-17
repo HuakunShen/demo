@@ -4,45 +4,38 @@ import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
 // import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-grpc";
 // import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-proto";
-import { LoggerProvider, SimpleLogRecordProcessor } from "@opentelemetry/sdk-logs";
+import { SimpleLogRecordProcessor } from "@opentelemetry/sdk-logs";
 import { WinstonInstrumentation } from "@opentelemetry/instrumentation-winston";
 import { AmqplibInstrumentation } from "@opentelemetry/instrumentation-amqplib";
 import { trace } from "@opentelemetry/api";
-import { logs } from "@opentelemetry/api-logs";
 import * as winston from 'winston';
 import { OpenTelemetryTransportV3 } from '@opentelemetry/winston-transport';
 import * as amqp from 'amqplib';
 
+const serviceName = 'hono-lgtm-publisher';
+
 // Set service name environment variable to ensure proper identification
-process.env.OTEL_SERVICE_NAME = 'hono-lgtm-publisher';
-
-// Set up LoggerProvider to export logs to LGTM
-const loggerProvider = new LoggerProvider({
-  processors: [
-    new SimpleLogRecordProcessor(
-      new OTLPLogExporter({
-        url: 'http://localhost:4318/v1/logs',
-      })
-    )
-  ]
-});
-
-// Register the logger provider
-logs.setGlobalLoggerProvider(loggerProvider);
+process.env.OTEL_SERVICE_NAME = serviceName;
 
 // Initialize OpenTelemetry with Winston and AMQP instrumentations
 const sdk = new NodeSDK({
-  serviceName: 'hono-lgtm-publisher',
+  serviceName: serviceName,
   traceExporter: new OTLPTraceExporter({
     url: 'http://localhost:4318/v1/traces',
   }),
+  logRecordProcessor: new SimpleLogRecordProcessor(
+    new OTLPLogExporter({
+      url: 'http://localhost:4318/v1/logs',
+    })
+  ),
   instrumentations: [
     new WinstonInstrumentation({
       // Disable automatic log sending since we'll use the transport directly
       disableLogSending: true,
       // Enable log correlation to add trace context
       logHook: (span: any, record: any) => {
-        record['service.name'] = 'hono-lgtm-publisher';
+        record['service.name'] = serviceName;
+        record['service.version'] = '1.0.0';
       },
     }),
     new AmqplibInstrumentation({
@@ -89,7 +82,7 @@ const logger = winston.createLogger({
 });
 
 // RabbitMQ connection setup
-let connection: amqp.Connection;
+let connection: amqp.ChannelModel;
 let channel: amqp.Channel;
 
 const RABBITMQ_URL = 'amqp://admin:admin@localhost:5672';
@@ -258,7 +251,7 @@ app.post('/order', async (c) => {
 app.get('/health', (c) => {
   return tracer.startActiveSpan('health-check', (span) => {
     try {
-      const isRabbitMQHealthy = !!channel && !channel.connection.closing;
+      const isRabbitMQHealthy = !!channel && !!channel.connection
       
       span.setAttributes({
         'health.rabbitmq': isRabbitMQHealthy,

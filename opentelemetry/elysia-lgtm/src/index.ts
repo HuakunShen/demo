@@ -8,29 +8,17 @@ import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-node";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
 import { OTLPTraceExporter as OTLPTraceExporterHTTP } from "@opentelemetry/exporter-trace-otlp-http";
 import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
-import { LoggerProvider, SimpleLogRecordProcessor } from "@opentelemetry/sdk-logs";
+import { SimpleLogRecordProcessor } from "@opentelemetry/sdk-logs";
 import { WinstonInstrumentation } from "@opentelemetry/instrumentation-winston";
 import { trace, SpanStatusCode } from "@opentelemetry/api";
-import { logs } from "@opentelemetry/api-logs";
 import * as winston from 'winston';
 import { OpenTelemetryTransportV3 } from '@opentelemetry/winston-transport';
 
 const OTLP_HOST = process.env.OTLP_HOST || "localhost";
 const serviceName = "Elysia Otel";
 
-// Set up LoggerProvider to export logs to LGTM
-const loggerProvider = new LoggerProvider({
-  processors: [
-    new SimpleLogRecordProcessor(
-      new OTLPLogExporter({
-        url: `http://${OTLP_HOST}:4318/v1/logs`,
-      })
-    )
-  ]
-});
-
-// Register the logger provider
-logs.setGlobalLoggerProvider(loggerProvider);
+// Set service name environment variable to ensure proper identification
+process.env.OTEL_SERVICE_NAME = serviceName;
 
 // Create multiple exporters for different endpoints
 const lgtmTraceExporter = new OTLPTraceExporter({
@@ -41,16 +29,21 @@ const jaegerTraceExporter = new OTLPTraceExporterHTTP({
   url: `http://${OTLP_HOST}:4319/v1/traces`,
 });
 
+const lgtmLogExporter = new OTLPLogExporter({
+  url: `http://${OTLP_HOST}:4318/v1/logs`,
+});
+
 // Create span processors for multiple exporters
 const spanProcessors = [
   new BatchSpanProcessor(lgtmTraceExporter),
   new BatchSpanProcessor(jaegerTraceExporter),
 ];
 
-// Initialize OpenTelemetry SDK with Winston instrumentation
+// Initialize OpenTelemetry SDK with Winston instrumentation and log processor
 const sdk = new NodeSDK({
   serviceName,
   spanProcessors,
+  logRecordProcessor: new SimpleLogRecordProcessor(lgtmLogExporter),
   instrumentations: [
     new WinstonInstrumentation({
       // Disable automatic log sending since we'll use the transport directly
@@ -58,6 +51,7 @@ const sdk = new NodeSDK({
       // Enable log correlation to add trace context
       logHook: (span: any, record: any) => {
         record['service.name'] = serviceName;
+        record['service.version'] = '1.0.0';
       },
     }),
   ],
