@@ -1,65 +1,11 @@
+// IMPORTANT: Import tracing setup FIRST before any other imports
+import './tracing';
+
 import { Hono } from 'hono'
-import { NodeSDK } from "@opentelemetry/sdk-node";
-import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
-// import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-grpc";
-// import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-proto";
-import { SimpleLogRecordProcessor } from "@opentelemetry/sdk-logs";
-import { WinstonInstrumentation } from "@opentelemetry/instrumentation-winston";
-import { AmqplibInstrumentation } from "@opentelemetry/instrumentation-amqplib";
-import { trace } from "@opentelemetry/api";
+import { trace, propagation, context, SpanKind } from "@opentelemetry/api";
 import * as winston from 'winston';
 import { OpenTelemetryTransportV3 } from '@opentelemetry/winston-transport';
 import * as amqp from 'amqplib';
-
-const serviceName = 'hono-lgtm-publisher';
-
-// Set service name environment variable to ensure proper identification
-process.env.OTEL_SERVICE_NAME = serviceName;
-
-// Initialize OpenTelemetry with Winston and AMQP instrumentations
-const sdk = new NodeSDK({
-  serviceName: serviceName,
-  traceExporter: new OTLPTraceExporter({
-    url: 'http://localhost:4318/v1/traces',
-  }),
-  logRecordProcessor: new SimpleLogRecordProcessor(
-    new OTLPLogExporter({
-      url: 'http://localhost:4318/v1/logs',
-    })
-  ),
-  instrumentations: [
-    new WinstonInstrumentation({
-      // Disable automatic log sending since we'll use the transport directly
-      disableLogSending: true,
-      // Enable log correlation to add trace context
-      logHook: (span: any, record: any) => {
-        record['service.name'] = serviceName;
-        record['service.version'] = '1.0.0';
-      },
-    }),
-    new AmqplibInstrumentation({
-      // Enable publishing hooks for better tracing
-      publishHook: (span: any, publishInfo: any) => {
-        span.setAttributes({
-          'messaging.system': 'rabbitmq',
-          'messaging.destination.name': publishInfo.exchange || publishInfo.routingKey || 'default',
-          'messaging.operation': 'publish',
-        });
-      },
-      // Enable consuming hooks
-      consumeHook: (span: any, msg: any) => {
-        span.setAttributes({
-          'messaging.system': 'rabbitmq',
-          'messaging.operation': 'receive',
-        });
-      },
-    }),
-  ],
-});
-
-// Start the SDK
-sdk.start();
 
 // Create Winston logger with OpenTelemetry transport
 const logger = winston.createLogger({
@@ -114,14 +60,17 @@ const tracer = trace.getTracer('hono-lgtm-publisher');
 
 app.get('/', (c) => {
   // Create a span for this request
-  return tracer.startActiveSpan('handle-root-request', (span) => {
+  return tracer.startActiveSpan('handle-root-request', { kind: SpanKind.SERVER }, (span) => {
     try {
       const userAgent = c.req.header('user-agent') || 'unknown';
       
       span.setAttributes({
+        'service.name': 'hono-lgtm-publisher',
         'http.method': 'GET',
         'http.route': '/',
-        'user.agent': userAgent
+        'http.scheme': 'http',
+        'http.target': '/',
+        'user_agent.original': userAgent
       });
       
       // Log with Winston - trace context will be automatically added
@@ -153,8 +102,16 @@ app.get('/', (c) => {
 
 // Add a test route for different log levels
 app.get('/test-logs', (c) => {
-  return tracer.startActiveSpan('test-logs', (span) => {
+  return tracer.startActiveSpan('test-logs', { kind: SpanKind.SERVER }, (span) => {
     try {
+      span.setAttributes({
+        'service.name': 'hono-lgtm-publisher',
+        'http.method': 'GET',
+        'http.route': '/test-logs',
+        'http.scheme': 'http',
+        'http.target': '/test-logs'
+      });
+
       logger.debug('Debug message from test route');
       logger.info('Info message from test route');
       logger.warn('Warning message from test route');
@@ -173,15 +130,18 @@ app.get('/test-logs', (c) => {
 
 // New route to publish messages to RabbitMQ
 app.post('/order', async (c) => {
-  return tracer.startActiveSpan('create-order', async (span) => {
+  return tracer.startActiveSpan('create-order', { kind: SpanKind.SERVER }, async (span) => {
     try {
       const body = await c.req.json();
       const orderId = body.orderId || `order-${Date.now()}`;
       const customerId = body.customerId || 'anonymous';
       
       span.setAttributes({
+        'service.name': 'hono-lgtm-publisher',
         'http.method': 'POST',
         'http.route': '/order',
+        'http.scheme': 'http',
+        'http.target': '/order',
         'order.id': orderId,
         'customer.id': customerId,
       });
@@ -202,12 +162,41 @@ app.post('/order', async (c) => {
       
       // Publish message to RabbitMQ with distributed tracing
       if (channel) {
-        const message = Buffer.from(JSON.stringify(orderEvent));
-        await channel.sendToQueue(QUEUE_NAME, message, {
-          persistent: true,
-          headers: {
-            'service': 'hono-lgtm-publisher',
-            'operation': 'order-created'
+        // Create producer span for message publishing
+        await tracer.startActiveSpan('publish-order-event', { kind: SpanKind.PRODUCER }, async (publishSpan) => {
+          try {
+            publishSpan.setAttributes({
+              'service.name': 'hono-lgtm-publisher',
+              'messaging.system': 'rabbitmq',
+              'messaging.destination.name': QUEUE_NAME,
+              'messaging.operation': 'publish',
+              'messaging.destination.kind': 'queue',
+              'order.id': orderId
+            });
+
+            const message = Buffer.from(JSON.stringify(orderEvent));
+            
+            // Inject trace context into message headers for distributed tracing
+            const headers: Record<string, any> = {
+              'service': 'hono-lgtm-publisher',
+              'operation': 'order-created'
+            };
+            
+            // Inject current trace context into headers
+            propagation.inject(context.active(), headers);
+            
+            await channel.sendToQueue(QUEUE_NAME, message, {
+              persistent: true,
+              headers
+            });
+            
+            publishSpan.setStatus({ code: 1 });
+          } catch (error) {
+            publishSpan.recordException(error as Error);
+            publishSpan.setStatus({ code: 2, message: (error as Error).message });
+            throw error;
+          } finally {
+            publishSpan.end();
           }
         });
         
@@ -249,8 +238,16 @@ app.post('/order', async (c) => {
 
 // Health check endpoint
 app.get('/health', (c) => {
-  return tracer.startActiveSpan('health-check', (span) => {
+  return tracer.startActiveSpan('health-check', { kind: SpanKind.SERVER }, (span) => {
     try {
+      span.setAttributes({
+        'service.name': 'hono-lgtm-publisher',
+        'http.method': 'GET',
+        'http.route': '/health',
+        'http.scheme': 'http',
+        'http.target': '/health'
+      });
+
       const isRabbitMQHealthy = !!channel && !!channel.connection
       
       span.setAttributes({

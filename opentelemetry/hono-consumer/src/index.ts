@@ -1,65 +1,10 @@
-import { NodeSDK } from "@opentelemetry/sdk-node";
-import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
-import { LoggerProvider, SimpleLogRecordProcessor } from "@opentelemetry/sdk-logs";
-import { WinstonInstrumentation } from "@opentelemetry/instrumentation-winston";
-import { AmqplibInstrumentation } from "@opentelemetry/instrumentation-amqplib";
-import { trace, context, propagation } from "@opentelemetry/api";
-import { logs } from "@opentelemetry/api-logs";
+// IMPORTANT: Import tracing setup FIRST before any other imports
+import './tracing';
+
+import { trace, context, propagation, SpanKind } from "@opentelemetry/api";
 import * as winston from 'winston';
 import { OpenTelemetryTransportV3 } from '@opentelemetry/winston-transport';
 import * as amqp from 'amqplib';
-
-// Set service name environment variable to ensure proper identification
-process.env.OTEL_SERVICE_NAME = 'order-processor-consumer';
-
-// Set up LoggerProvider to export logs to LGTM
-const loggerProvider = new LoggerProvider({
-  processors: [
-    new SimpleLogRecordProcessor(
-      new OTLPLogExporter({
-        url: 'http://localhost:4318/v1/logs',
-      })
-    )
-  ]
-});
-
-// Register the logger provider
-logs.setGlobalLoggerProvider(loggerProvider);
-
-// Initialize OpenTelemetry with Winston and AMQP instrumentations
-const sdk = new NodeSDK({
-  serviceName: 'order-processor-consumer',
-  traceExporter: new OTLPTraceExporter({
-    url: 'http://localhost:4318/v1/traces',
-  }),
-  instrumentations: [
-    new WinstonInstrumentation({
-      disableLogSending: true,
-      logHook: (span: any, record: any) => {
-        record['service.name'] = 'order-processor-consumer';
-      },
-    }),
-    new AmqplibInstrumentation({
-      publishHook: (span: any, publishInfo: any) => {
-        span.setAttributes({
-          'messaging.system': 'rabbitmq',
-          'messaging.destination.name': publishInfo.exchange || publishInfo.routingKey || 'default',
-          'messaging.operation': 'publish',
-        });
-      },
-      consumeHook: (span: any, msg: any) => {
-        span.setAttributes({
-          'messaging.system': 'rabbitmq',
-          'messaging.operation': 'receive',
-        });
-      },
-    }),
-  ],
-});
-
-// Start the SDK
-sdk.start();
 
 // Create Winston logger
 const logger = winston.createLogger({
@@ -98,15 +43,16 @@ interface OrderEvent {
 }
 
 async function processOrder(orderEvent: OrderEvent): Promise<void> {
-  return tracer.startActiveSpan('process-order', async (span) => {
+  return tracer.startActiveSpan('process-order', { kind: SpanKind.INTERNAL }, async (span) => {
     try {
       span.setAttributes({
+        'service.name': 'order-processor-consumer',
         'order.id': orderEvent.orderId,
         'customer.id': orderEvent.customerId,
         'order.status': orderEvent.status,
         'order.total': orderEvent.total,
         'order.items.count': orderEvent.items.length,
-        'messaging.operation': 'process'
+        'business.operation': 'process-order'
       });
 
       logger.info('Processing order', {
@@ -141,12 +87,16 @@ async function processOrder(orderEvent: OrderEvent): Promise<void> {
       });
 
       // Simulate sending confirmation email or notification
-      await tracer.startActiveSpan('send-confirmation', async (confirmationSpan) => {
+      await tracer.startActiveSpan('send-confirmation', { kind: SpanKind.CLIENT }, async (confirmationSpan) => {
         try {
           confirmationSpan.setAttributes({
+            'service.name': 'order-processor-consumer',
             'notification.type': 'email',
             'customer.id': orderEvent.customerId,
-            'order.id': orderEvent.orderId
+            'order.id': orderEvent.orderId,
+            'http.method': 'POST',
+            'http.url': 'https://api.email-service.com/send',
+            'operation': 'send-notification'
           });
 
           // Simulate email sending delay
@@ -202,51 +152,58 @@ async function startConsumer() {
     // Start consuming messages
     await channel.consume(QUEUE_NAME, async (msg) => {
       if (msg) {
-        return tracer.startActiveSpan('consume-order-event', async (span) => {
-          try {
-            const messageContent = msg.content.toString();
-            const orderEvent: OrderEvent = JSON.parse(messageContent);
+        // Extract trace context from message headers to continue distributed trace
+        const messageHeaders = msg.properties.headers || {};
+        const parentContext = propagation.extract(context.active(), messageHeaders);
+        
+        // Start span within the extracted context to continue the distributed trace
+        return context.with(parentContext, () => {
+          return tracer.startActiveSpan('consume-order-event', { kind: SpanKind.CONSUMER }, async (span) => {
+            try {
+              const messageContent = msg.content.toString();
+              const orderEvent: OrderEvent = JSON.parse(messageContent);
 
-            span.setAttributes({
-              'messaging.system': 'rabbitmq',
-              'messaging.operation': 'receive',
-              'messaging.destination.name': QUEUE_NAME,
-              'messaging.message.id': msg.properties.messageId || 'unknown',
-              'order.id': orderEvent.orderId,
-              'message.size': msg.content.length
-            });
+              span.setAttributes({
+                'service.name': 'order-processor-consumer',
+                'messaging.system': 'rabbitmq',
+                'messaging.operation': 'receive',
+                'messaging.destination.name': QUEUE_NAME,
+                'messaging.destination.kind': 'queue',
+                'messaging.message.id': msg.properties.messageId || 'unknown',
+                'messaging.message.body.size': msg.content.length,
+                'order.id': orderEvent.orderId
+              });
+              
+              logger.info('Received order event', {
+                orderId: orderEvent.orderId,
+                customerId: orderEvent.customerId,
+                status: orderEvent.status,
+                messageHeaders: Object.keys(messageHeaders),
+                traceId: span.spanContext().traceId
+              });
 
-            // Extract trace context from message headers if available
-            const traceHeaders = msg.properties.headers || {};
-            
-            logger.info('Received order event', {
-              orderId: orderEvent.orderId,
-              customerId: orderEvent.customerId,
-              status: orderEvent.status,
-              messageHeaders: Object.keys(traceHeaders)
-            });
+              // Process the order (this will inherit the trace context)
+              await processOrder(orderEvent);
 
-            // Process the order
-            await processOrder(orderEvent);
+              // Acknowledge the message
+              channel.ack(msg);
 
-            // Acknowledge the message
-            channel.ack(msg);
+              span.setStatus({ code: 1 });
+            } catch (error) {
+              logger.error('Error consuming message', {
+                error: error instanceof Error ? error.message : 'Unknown error',
+                stack: error instanceof Error ? error.stack : undefined
+              });
 
-            span.setStatus({ code: 1 });
-          } catch (error) {
-            logger.error('Error consuming message', {
-              error: error instanceof Error ? error.message : 'Unknown error',
-              stack: error instanceof Error ? error.stack : undefined
-            });
+              span.recordException(error as Error);
+              span.setStatus({ code: 2, message: (error as Error).message });
 
-            span.recordException(error as Error);
-            span.setStatus({ code: 2, message: (error as Error).message });
-
-            // Reject and requeue the message for retry
-            channel.nack(msg, false, true);
-          } finally {
-            span.end();
-          }
+              // Reject and requeue the message for retry
+              channel.nack(msg, false, true);
+            } finally {
+              span.end();
+            }
+          });
         });
       }
     });

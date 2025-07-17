@@ -4,7 +4,6 @@
     "dev": "bun run --hot src/index.ts"
   },
   "dependencies": {
-    "amqplib": "^0.10.3",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/api-logs": "^0.203.0",
     "@opentelemetry/exporter-logs-otlp-http": "^0.203.0",
@@ -13,16 +12,17 @@
     "@opentelemetry/instrumentation": "^0.203.0",
     "@opentelemetry/instrumentation-amqplib": "^0.50.0",
     "@opentelemetry/instrumentation-winston": "^0.48.0",
-    "@opentelemetry/winston-transport": "^0.14.0",
     "@opentelemetry/resources": "^2.0.1",
     "@opentelemetry/sdk-logs": "^0.203.0",
     "@opentelemetry/sdk-node": "^0.203.0",
     "@opentelemetry/sdk-trace-node": "^2.0.1",
     "@opentelemetry/semantic-conventions": "^1.36.0",
+    "@opentelemetry/winston-transport": "^0.14.0",
+    "amqplib": "^0.10.3",
     "winston": "^3.17.0"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "@types/amqplib": "^0.10.1"
   }
-} 
+}
