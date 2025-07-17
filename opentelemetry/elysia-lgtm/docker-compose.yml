@@ -1,0 +1,32 @@
+version: "3.8"
+
+services:
+  lgtm:
+    image: docker.io/grafana/otel-lgtm:0.11.5
+    container_name: lgtm
+    ports:
+      - "3010:3000"
+      - "4317:4317" # http
+      - "4318:4318" # protobuf
+    volumes:
+      - ./lgtm/grafana:/data/grafana
+      - ./lgtm/prometheus:/data/prometheus
+      - ./lgtm/loki:/data/loki
+    environment:
+      - GF_PATHS_DATA=/data/grafana
+    # stdin_open: true
+    # tty: true
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.51
+    container_name: jaeger
+    ports:
+      - "16686:16686" # Jaeger UI
+      - "14268:14268" # HTTP collector
+      - "14250:14250" # gRPC collector
+      - "4319:4318" # OTLP HTTP receiver
+      - "6831:6831/udp" # UDP collector (compact)
+      - "6832:6832/udp" # UDP collector (binary)
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
