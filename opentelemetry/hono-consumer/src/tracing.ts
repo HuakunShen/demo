@@ -32,7 +32,7 @@ const sdk = new NodeSDK({
       // Configure Winston instrumentation
       '@opentelemetry/instrumentation-winston': {
         // // Disable automatic log sending since we're using the transport directly
-        // disableLogSending: true,
+        disableLogSending: true,
         // // Enable log correlation to add trace context
         // logHook: (span: any, record: any) => {
         //   record['service.name'] = serviceName;

@@ -31,13 +31,13 @@ const sdk = new NodeSDK({
     getNodeAutoInstrumentations({
       // Configure Winston instrumentation
       '@opentelemetry/instrumentation-winston': {
-      //   // Disable automatic log sending since we're using the transport directly
-      //   disableLogSending: true,
-      //   // Enable log correlation to add trace context
-      //   logHook: (span: any, record: any) => {
-      //     record['service.name'] = serviceName;
-      //     record['service.version'] = '1.0.0';
-      //   },
+        //   // Disable automatic log sending since we're using the transport directly
+          disableLogSending: true,
+        //   // Enable log correlation to add trace context
+        //   logHook: (span: any, record: any) => {
+        //     record['service.name'] = serviceName;
+        //     record['service.version'] = '1.0.0';
+        //   },
       },
       // Configure AMQP instrumentation
       '@opentelemetry/instrumentation-amqplib': {
@@ -68,4 +68,4 @@ sdk.start();
 
 console.log('OpenTelemetry initialized for', serviceName, 'with auto-instrumentations');
 
-export { sdk }; 
+export { sdk };
