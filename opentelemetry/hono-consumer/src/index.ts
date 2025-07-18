@@ -21,7 +21,7 @@ const logger = winston.createLogger({
         winston.format.simple()
       )
     }),
-    new OpenTelemetryTransportV3()
+    // new OpenTelemetryTransportV3()
   ],
 });
 

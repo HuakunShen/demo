@@ -23,7 +23,7 @@ const logger = winston.createLogger({
       )
     }),
     // Add OpenTelemetry transport to send logs via OTLP
-    new OpenTelemetryTransportV3()
+    // new OpenTelemetryTransportV3()
   ],
 });
 
@@ -38,10 +38,10 @@ async function setupRabbitMQ() {
   try {
     connection = await amqp.connect(RABBITMQ_URL);
     channel = await connection.createChannel();
-    
+
     // Ensure queue exists
     await channel.assertQueue(QUEUE_NAME, { durable: true });
-    
+
     logger.info('RabbitMQ connection established');
   } catch (error) {
     logger.error('Failed to connect to RabbitMQ', { error: error instanceof Error ? error.message : 'Unknown error' });
@@ -63,7 +63,7 @@ app.get('/', (c) => {
   return tracer.startActiveSpan('handle-root-request', { kind: SpanKind.SERVER }, (span) => {
     try {
       const userAgent = c.req.header('user-agent') || 'unknown';
-      
+
       span.setAttributes({
         'service.name': 'hono-lgtm-publisher',
         'http.method': 'GET',
@@ -72,25 +72,25 @@ app.get('/', (c) => {
         'http.target': '/',
         'user_agent.original': userAgent
       });
-      
+
       // Log with Winston - trace context will be automatically added
       logger.info('Processing root request', {
         method: 'GET',
         route: '/',
         userAgent: userAgent
       });
-      
+
       span.setStatus({ code: 1 }); // OK status
-      
+
       logger.info('Request processed successfully');
-      
+
       return c.text('Hello Hono with Winston + OpenTelemetry + RabbitMQ!');
     } catch (error) {
-      logger.error('Error processing request', { 
+      logger.error('Error processing request', {
         error: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined 
+        stack: error instanceof Error ? error.stack : undefined
       });
-      
+
       span.recordException(error as Error);
       span.setStatus({ code: 2, message: (error as Error).message }); // ERROR status
       throw error;
@@ -116,11 +116,11 @@ app.get('/test-logs', (c) => {
       logger.info('Info message from test route');
       logger.warn('Warning message from test route');
       logger.error('Error message from test route');
-      
+
       span.setStatus({ code: 1 });
-      return c.json({ 
+      return c.json({
         message: 'Logs sent with different levels',
-        traceId: span.spanContext().traceId 
+        traceId: span.spanContext().traceId
       });
     } finally {
       span.end();
@@ -135,7 +135,7 @@ app.post('/order', async (c) => {
       const body = await c.req.json();
       const orderId = body.orderId || `order-${Date.now()}`;
       const customerId = body.customerId || 'anonymous';
-      
+
       span.setAttributes({
         'service.name': 'hono-lgtm-publisher',
         'http.method': 'POST',
@@ -145,7 +145,7 @@ app.post('/order', async (c) => {
         'order.id': orderId,
         'customer.id': customerId,
       });
-      
+
       // Create order event to publish
       const orderEvent = {
         orderId,
@@ -157,9 +157,9 @@ app.post('/order', async (c) => {
         traceId: span.spanContext().traceId,
         spanId: span.spanContext().spanId
       };
-      
+
       logger.info('Creating new order', { orderId, customerId });
-      
+
       // Publish message to RabbitMQ with distributed tracing
       if (channel) {
         // Create producer span for message publishing
@@ -175,21 +175,21 @@ app.post('/order', async (c) => {
             });
 
             const message = Buffer.from(JSON.stringify(orderEvent));
-            
+
             // Inject trace context into message headers for distributed tracing
             const headers: Record<string, any> = {
               'service': 'hono-lgtm-publisher',
               'operation': 'order-created'
             };
-            
+
             // Inject current trace context into headers
             propagation.inject(context.active(), headers);
-            
+
             await channel.sendToQueue(QUEUE_NAME, message, {
               persistent: true,
               headers
             });
-            
+
             publishSpan.setStatus({ code: 1 });
           } catch (error) {
             publishSpan.recordException(error as Error);
@@ -199,36 +199,36 @@ app.post('/order', async (c) => {
             publishSpan.end();
           }
         });
-        
-        logger.info('Order event published to queue', { 
-          orderId, 
+
+        logger.info('Order event published to queue', {
+          orderId,
           queue: QUEUE_NAME,
-          traceId: span.spanContext().traceId 
+          traceId: span.spanContext().traceId
         });
-        
+
         span.setStatus({ code: 1 });
-        return c.json({ 
+        return c.json({
           success: true,
-          orderId, 
+          orderId,
           message: 'Order created and event published',
-          traceId: span.spanContext().traceId 
+          traceId: span.spanContext().traceId
         });
       } else {
         throw new Error('RabbitMQ channel not available');
       }
-      
+
     } catch (error) {
-      logger.error('Error creating order', { 
+      logger.error('Error creating order', {
         error: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined 
+        stack: error instanceof Error ? error.stack : undefined
       });
-      
+
       span.recordException(error as Error);
       span.setStatus({ code: 2, message: (error as Error).message });
-      
-      return c.json({ 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+
+      return c.json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
       }, 500);
     } finally {
       span.end();
@@ -249,15 +249,15 @@ app.get('/health', (c) => {
       });
 
       const isRabbitMQHealthy = !!channel && !!channel.connection
-      
+
       span.setAttributes({
         'health.rabbitmq': isRabbitMQHealthy,
         'health.status': isRabbitMQHealthy ? 'healthy' : 'unhealthy'
       });
-      
+
       if (isRabbitMQHealthy) {
         span.setStatus({ code: 1 });
-        return c.json({ 
+        return c.json({
           status: 'healthy',
           services: {
             rabbitmq: 'connected'
@@ -265,7 +265,7 @@ app.get('/health', (c) => {
         });
       } else {
         span.setStatus({ code: 2, message: 'RabbitMQ not connected' });
-        return c.json({ 
+        return c.json({
           status: 'unhealthy',
           services: {
             rabbitmq: 'disconnected'

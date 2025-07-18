@@ -8,22 +8,28 @@ const serviceName = 'hono-lgtm-publisher';
 
 // Set service name environment variable to ensure proper identification
 process.env.OTEL_SERVICE_NAME = serviceName;
-
+const OTEL_HOST = process.env.OTEL_HOST || 'localhost';
+const OTEL_TRACE_URL = `http://${OTEL_HOST}:4318/v1/traces`
+const OTEL_LOG_URL = `http://${OTEL_HOST}:4318/v1/logs`
+console.table({
+  OTEL_TRACE_URL,
+  OTEL_LOG_URL,
+})
 // Initialize OpenTelemetry with Winston and AMQP instrumentations
 const sdk = new NodeSDK({
   serviceName: serviceName,
   traceExporter: new OTLPTraceExporter({
-    url: 'http://localhost:4318/v1/traces',
+    url: OTEL_TRACE_URL,
   }),
   logRecordProcessor: new SimpleLogRecordProcessor(
     new OTLPLogExporter({
-      url: 'http://localhost:4318/v1/logs',
+      url: OTEL_LOG_URL,
     })
   ),
   instrumentations: [
     new WinstonInstrumentation({
       // Disable automatic log sending since we'll use the transport directly
-      disableLogSending: true,
+      disableLogSending: false,
       // Enable log correlation to add trace context
       logHook: (span: any, record: any) => {
         record['service.name'] = serviceName;
