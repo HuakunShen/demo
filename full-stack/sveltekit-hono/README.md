@@ -2,6 +2,11 @@
 
 This project demonstrates how to embed [Hono](https://hono.dev/) in a SvelteKit application with full end-to-end type safety.
 
+## OpenAPI UI
+
+- http://localhost:5173/api/scalar
+- http://localhost:5173/api/swagger
+
 ## Features
 
 - ✅ **Type-safe API client** using Hono's RPC client

@@ -2,6 +2,8 @@
 
 This project demonstrates how to embed [Elysia](https://elysiajs.com/) in a SvelteKit application with full end-to-end type safety.
 
+- open http://localhost:5173/api/openapi to see the API documentation with swagger ui
+
 ## Features
 
 - ✅ **Type-safe API client** using Elysia's Eden Treaty
