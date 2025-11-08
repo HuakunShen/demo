@@ -1,0 +1,3 @@
+[submodule "sql-pr-demo/tauri-plugins-workspace"]
+	path = sql-pr-demo/tauri-plugins-workspace
+	url = https://github.com/HuakunShen/tauri-plugins-workspace.git
