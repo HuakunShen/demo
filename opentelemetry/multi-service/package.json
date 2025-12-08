@@ -1,0 +1,35 @@
+{
+  "name": "multi-service",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@opentelemetry/api": "1.9.0",
+    "@opentelemetry/api-logs": "^0.205.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.64.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.205.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.205.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.205.0",
+    "@opentelemetry/exporter-trace-otlp-proto": "^0.205.0",
+    "@opentelemetry/instrumentation": "^0.205.0",
+    "@opentelemetry/instrumentation-amqplib": "^0.52.0",
+    "@opentelemetry/instrumentation-pino": "^0.52.0",
+    "@opentelemetry/instrumentation-winston": "^0.50.0",
+    "@opentelemetry/resources": "^2.1.0",
+    "@opentelemetry/sdk-logs": "^0.205.0",
+    "@opentelemetry/sdk-metrics": "2.0.1",
+    "@opentelemetry/sdk-node": "^0.205.0",
+    "@opentelemetry/sdk-trace-base": "2.1.0",
+    "@opentelemetry/sdk-trace-node": "2.0.1",
+    "@opentelemetry/sdk-trace-web": "2.1.0",
+    "@opentelemetry/semantic-conventions": "^1.36.0",
+    "@opentelemetry/winston-transport": "^0.16.0",
+    "winston": "^3.18.3"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
