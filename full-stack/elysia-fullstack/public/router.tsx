@@ -6,10 +6,10 @@ import { ThemeProvider } from './components/theme-provider'
 import { Toaster } from 'sonner'
 import { NotFoundPage } from './components/not-found-page'
 import { HomePage } from './pages/home-page'
-import { StrategiesPage } from './pages/strategies-page'
-import { InstanceDetailsPage } from './pages/instance-details-page'
+import { AboutPage } from './pages/about-page'
+import { ServicesPage } from './pages/services-page'
+import { ContactPage } from './pages/contact-page'
 import { AppLayout } from './components/app-layout'
-import { MarketDataProvider } from './components/market-data-provider'
 
 // Create root route
 const rootRoute = createRootRoute({
@@ -31,47 +31,56 @@ const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
   component: () => (
-    <Layout className="gap-6">
+    <Layout>
       <ThemeProvider>
-        <MarketDataProvider>
-          <AppLayout>
-            <HomePage />
-          </AppLayout>
-        </MarketDataProvider>
+        <AppLayout>
+          <HomePage />
+        </AppLayout>
       </ThemeProvider>
     </Layout>
   ),
 })
 
-// Create strategies route
-const strategiesRoute = createRoute({
+// Create about route
+const aboutRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/strategies',
+  path: '/about',
   component: () => (
     <Layout>
       <ThemeProvider>
-        <MarketDataProvider>
-          <AppLayout>
-            <StrategiesPage />
-          </AppLayout>
-        </MarketDataProvider>
+        <AppLayout>
+          <AboutPage />
+        </AppLayout>
       </ThemeProvider>
     </Layout>
   ),
 })
 
-// Create strategy instance route with param
-const strategyInstanceRoute = createRoute({
+// Create services route
+const servicesRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/strategy-instance/$id',
+  path: '/services',
   component: () => (
     <Layout>
       <ThemeProvider>
-        <MarketDataProvider>
-          <AppLayout>
-            <InstanceDetailsPage />
-          </AppLayout>
-        </MarketDataProvider>
+        <AppLayout>
+          <ServicesPage />
+        </AppLayout>
+      </ThemeProvider>
+    </Layout>
+  ),
+})
+
+// Create contact route
+const contactRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/contact',
+  component: () => (
+    <Layout>
+      <ThemeProvider>
+        <AppLayout>
+          <ContactPage />
+        </AppLayout>
       </ThemeProvider>
     </Layout>
   ),
@@ -80,8 +89,9 @@ const strategyInstanceRoute = createRoute({
 // Create route tree
 const routeTree = rootRoute.addChildren([
   indexRoute,
-  strategiesRoute,
-  strategyInstanceRoute,
+  aboutRoute,
+  servicesRoute,
+  contactRoute,
 ])
 
 // Create hash history
